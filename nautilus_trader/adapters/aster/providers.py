@@ -126,6 +126,9 @@ class AsterInstrumentProvider(BinanceFuturesInstrumentProvider):
         price_precision = price_increment.precision
         size_precision = size_increment.precision
 
+        maker_fee = Decimal(str(getattr(self._config, "maker_bps", 0.5))) / Decimal(10_000)
+        taker_fee = Decimal(str(getattr(self._config, "taker_bps", 4.0))) / Decimal(10_000)
+
         instrument = CryptoPerpetual(
             instrument_id=InstrumentId(Symbol(symbol_str), self._venue),
             raw_symbol=Symbol(symbol_str),
@@ -139,8 +142,8 @@ class AsterInstrumentProvider(BinanceFuturesInstrumentProvider):
             size_increment=size_increment,
             ts_event=server_time_ms * 1_000_000,
             ts_init=server_time_ms * 1_000_000,
-            maker_fee=Decimal("-0.0001"),
-            taker_fee=Decimal("0.0004"),
+            maker_fee=maker_fee,
+            taker_fee=taker_fee,
         )
 
         # Register currencies and store

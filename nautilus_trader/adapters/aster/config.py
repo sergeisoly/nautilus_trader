@@ -36,6 +36,9 @@ class AsterInstrumentProviderConfig(BinanceInstrumentProviderConfig, frozen=True
     venue: Venue = ASTER_VENUE
     base_url_http: str = ASTER_BASE_URL_HTTP
     log_warnings: bool = True
+    # Default public fees (can be overridden per account)
+    maker_bps: float = 0.5  # 0.005%
+    taker_bps: float = 4.0  # 0.04%
 
 
 class AsterDataClientConfig(BinanceDataClientConfig, frozen=True):

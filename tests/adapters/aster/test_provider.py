@@ -70,8 +70,8 @@ def test_load_all_handles_aster_time_in_force_rpi(monkeypatch, event_loop):
 
     assert inst.price_increment == Price.from_str("0.0001")
     assert inst.size_increment == Quantity.from_str("0.001")
-    assert inst.maker_fee == Decimal("-0.0001")
-    assert inst.taker_fee == Decimal("0.0004")
+    assert inst.maker_fee == Decimal("0.00005")  # 0.5 bps default
+    assert inst.taker_fee == Decimal("0.0004")   # 4 bps default
 
 
 def test_load_ids_single_symbol(monkeypatch, event_loop):
