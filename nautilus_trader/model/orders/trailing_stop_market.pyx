@@ -226,7 +226,10 @@ cdef class TrailingStopMarketOrder(Order):
             self.venue_order_id = event.venue_order_id
         if event.quantity is not None:
             self.quantity = event.quantity
-            self.leaves_qty = Quantity.from_raw_c(self.quantity._mem.raw - self.filled_qty._mem.raw, self.quantity._mem.precision)
+            if self.quantity._mem.raw > self.filled_qty._mem.raw:
+                self.leaves_qty = Quantity.from_raw_c(self.quantity._mem.raw - self.filled_qty._mem.raw, self.quantity._mem.precision)
+            else:
+                self.leaves_qty = Quantity.from_raw_c(0, self.quantity._mem.precision)
         if event.trigger_price is not None:
             self.trigger_price = event.trigger_price
 

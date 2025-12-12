@@ -316,7 +316,10 @@ cdef class Quantity:
         return Quantity.from_raw_c(self._mem.raw + other._mem.raw, self._mem.precision)
 
     cdef Quantity sub(self, Quantity other):
-        return Quantity.from_raw_c(self._mem.raw - other._mem.raw, self._mem.precision)
+        if self._mem.raw > other._mem.raw:
+            return Quantity.from_raw_c(self._mem.raw - other._mem.raw, self._mem.precision)
+        else:
+            return Quantity.from_raw_c(0, self._mem.precision)
 
     cdef Quantity saturating_sub(self, Quantity other):
         return Quantity.from_mem_c(quantity_saturating_sub(self._mem, other._mem))
@@ -327,7 +330,10 @@ cdef class Quantity:
             self._mem.precision = other.precision
 
     cdef void sub_assign(self, Quantity other):
-        self._mem.raw -= other._mem.raw
+        if self._mem.raw > other._mem.raw:
+            self._mem.raw -= other._mem.raw
+        else:
+            self._mem.raw = 0
         if self._mem.precision == 0:
             self._mem.precision = other.precision
 

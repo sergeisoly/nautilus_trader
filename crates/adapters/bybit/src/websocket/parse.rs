@@ -772,7 +772,7 @@ pub fn parse_ws_account_state(
 
         let total = Money::from_decimal(total_dec, currency)?;
         let locked = Money::from_decimal(locked_dec, currency)?;
-        let free = Money::from_raw(total.raw - locked.raw, currency);
+        let free = Money::from_raw(total.raw.saturating_sub(locked.raw), currency);
 
         let balance = AccountBalance::new(total, locked, free);
         balances.push(balance);

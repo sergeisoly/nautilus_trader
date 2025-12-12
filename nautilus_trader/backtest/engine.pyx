@@ -1218,6 +1218,20 @@ cdef class BacktestEngine:
         self._data_iterator.add_data("backtest_data", self._data, append_data=True, presorted=True)
         self._sorted = True
 
+    def sync_presorted_data(self) -> None:
+        """
+        Sync pre-sorted data to the internal iterator without re-sorting.
+
+        Use this when data has been added with sort=False and is already
+        correctly sorted externally (e.g., via heapq.merge).
+
+        This bypasses the ts_init re-sort that sort_data() performs,
+        preserving the original ordering for data with identical timestamps.
+
+        """
+        self._data_iterator.add_data("backtest_data", self._data, append_data=True, presorted=True)
+        self._sorted = True
+
     def clear_data(self) -> None:
         """
         Clear the engines internal data stream.
@@ -2988,12 +3002,40 @@ cdef class SimulatedExchange:
 
     cdef tuple generate_inflight_command(self, TradingCommand command):
         cdef uint64_t ts
+        cdef:
+            bint is_post_only
+            Order order
         if isinstance(command, (SubmitOrder, SubmitOrderList)):
-            ts = command.ts_init + self.latency_model.insert_latency_nanos
+            is_post_only = False
+            if isinstance(command, SubmitOrder):
+                if hasattr(command.order, "is_post_only"):
+                    is_post_only = command.order.is_post_only
+            else:
+                is_post_only = True
+                for order in command.order_list.orders:
+                    if hasattr(order, "is_post_only") and not order.is_post_only:
+                        is_post_only = False
+                        break
+
+            if is_post_only:
+                ts = command.ts_init + self.latency_model.insert_post_only_latency_nanos
+            else:
+                ts = command.ts_init + self.latency_model.insert_latency_nanos
         elif isinstance(command, ModifyOrder):
-            ts = command.ts_init + self.latency_model.update_latency_nanos
+            order = self.cache.order(command.client_order_id)
+            if order is not None and hasattr(order, "is_post_only") and order.is_post_only:
+                ts = command.ts_init + self.latency_model.update_post_only_latency_nanos
+            else:
+                ts = command.ts_init + self.latency_model.update_latency_nanos
         elif isinstance(command, (CancelOrder, CancelAllOrders, BatchCancelOrders)):
-            ts = command.ts_init + self.latency_model.cancel_latency_nanos
+            if isinstance(command, CancelOrder):
+                order = self.cache.order(command.client_order_id)
+                if order is not None and hasattr(order, "is_post_only") and order.is_post_only:
+                    ts = command.ts_init + self.latency_model.cancel_post_only_latency_nanos
+                else:
+                    ts = command.ts_init + self.latency_model.cancel_latency_nanos
+            else:
+                ts = command.ts_init + self.latency_model.cancel_latency_nanos
         else:
             raise ValueError(f"invalid `TradingCommand`, was {command}")  # pragma: no cover (design-time error)
 
@@ -5363,10 +5405,10 @@ cdef class OrderMatchingEngine:
 
         Returns None if there is no quantity available to fill.
         """
-        cdef QuantityRaw leaves_raw = order.quantity._mem.raw - order.filled_qty._mem.raw if order.quantity._mem.raw > order.filled_qty._mem.raw else 0
-
-        if leaves_raw == 0:
+        cdef QuantityRaw leaves_raw
+        if order.quantity._mem.raw <= order.filled_qty._mem.raw:
             return None
+        leaves_raw = order.quantity._mem.raw - order.filled_qty._mem.raw
 
         cdef QuantityRaw fill_raw = leaves_raw
         cdef QuantityRaw available_raw

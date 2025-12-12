@@ -812,7 +812,7 @@ pub fn parse_account_state(
         let currency = get_currency(&coin.coin);
         let total = Money::from_decimal(total_dec, currency)?;
         let locked = Money::from_decimal(locked_dec, currency)?;
-        let free = Money::from_raw(total.raw - locked.raw, currency);
+        let free = Money::from_raw(total.raw.saturating_sub(locked.raw), currency);
 
         balances.push(AccountBalance::new(total, locked, free));
     }

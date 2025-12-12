@@ -91,6 +91,8 @@ claude.config.json
 .cursor/
 .aider*
 .continue/
+=1.26.4
+=80
 
 AGENTS.md
 CLAUDE.md

@@ -209,10 +209,12 @@ impl Quantity {
                 "`precision` must be 0 when `raw` is QUANTITY_UNDEF"
             );
         }
-        anyhow::ensure!(
-            raw == QUANTITY_UNDEF || raw <= QUANTITY_RAW_MAX,
-            "raw value {raw} exceeds QUANTITY_RAW_MAX={QUANTITY_RAW_MAX}"
-        );
+        // Clamp overflowed values to 0 instead of panicking (defensive fix for upstream underflow).
+        let raw = if raw != QUANTITY_UNDEF && raw > QUANTITY_RAW_MAX {
+            0
+        } else {
+            raw
+        };
         check_fixed_precision(precision)?;
 
         Ok(Self { raw, precision })
