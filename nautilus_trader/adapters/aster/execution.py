@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 import asyncio
+from asyncio import TaskGroup
+from decimal import Decimal
 
 from nautilus_trader.adapters.aster.config import AsterExecClientConfig
 from nautilus_trader.adapters.aster.constants import ASTER_BASE_URL_WS
@@ -24,10 +26,12 @@ from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.adapters.binance.http.error import BinanceClientError
 from nautilus_trader.adapters.binance.futures.execution import BinanceFuturesExecutionClient
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
+from nautilus_trader.accounting.accounts.margin import MarginAccount
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.enums import LogColor
+from nautilus_trader.core.datetime import millis_to_nanos
 
 
 class AsterExecutionClient(BinanceFuturesExecutionClient):
@@ -58,6 +62,59 @@ class AsterExecutionClient(BinanceFuturesExecutionClient):
             account_type=BinanceAccountType.USDT_FUTURES,
             name=name,
         )
+
+    async def _update_account_state(self) -> None:
+        # Same as BinanceFuturesExecutionClient._update_account_state, but tolerate
+        # missing/unsupported futures symbolConfig endpoint on ASTERDEX.
+        account_info = await self._futures_http_account.query_futures_account_info(recv_window=str(5000))
+        if account_info.canTrade:
+            self._log.info("Binance API key authenticated", LogColor.GREEN)
+            self._log.info(f"API key {self._http_client.api_key_masked} has trading permissions")
+        else:
+            self._log.error("Binance API key does not have trading permissions")
+        self.generate_account_state(
+            balances=account_info.parse_to_account_balances(),
+            margins=account_info.parse_to_margin_balances(),
+            reported=True,
+            ts_event=millis_to_nanos(account_info.updateTime),
+        )
+
+        await self._await_account_registered(log_registered=False)
+
+        if self._leverages:
+            async with TaskGroup() as tg:
+                leverage_tasks = [tg.create_task(self._futures_http_account.set_leverage(symbol, leverage)) for symbol, leverage in self._leverages.items()]
+            for task in leverage_tasks:
+                res = task.result()
+                self._log.info(f"Set default leverage {res.symbol} {res.leverage}X")
+
+        if self._margin_types:
+            async with TaskGroup() as tg:
+                margin_tasks = [
+                    (tg.create_task(self._futures_http_account.set_margin_type(symbol, type_)), symbol, type_)
+                    for symbol, type_ in self._margin_types.items()
+                ]
+            for _, symbol, type_ in margin_tasks:
+                self._log.info(f"Set {symbol} margin type to {type_.value}")
+
+        account: MarginAccount = self.get_account()
+        try:
+            symbol_configs = await self._futures_http_account.query_futures_symbol_config()
+        except BinanceClientError as exc:
+            self._log.warning(
+                f"ASTERDEX symbolConfig endpoint unavailable (status={exc.status}); skipping leverage cache init.",
+                LogColor.YELLOW,
+            )
+            return
+
+        for config in symbol_configs:
+            try:
+                instrument_id = self._get_cached_instrument_id(config.symbol)
+                leverage = Decimal(config.leverage)
+                account.set_leverage(instrument_id, leverage)
+                self._log.debug(f"Set leverage {config.symbol} {leverage}X")
+            except KeyError:
+                continue
 
     async def _init_dual_side_position(self) -> None:
         # ASTERDEX does not reliably support the Binance futures hedge-mode endpoint.
