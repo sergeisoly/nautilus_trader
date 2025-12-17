@@ -63,7 +63,7 @@ def test_load_all_handles_aster_time_in_force_rpi(monkeypatch, event_loop):
     event_loop.run_until_complete(provider.load_all_async())
 
     instruments = provider.get_all()
-    iid = InstrumentId(Symbol("FOOUSDT"), Venue("ASTERDEX"))
+    iid = InstrumentId(Symbol("FOOUSDT-PERP"), Venue("ASTERDEX"))
     assert iid in instruments
     inst = instruments[iid]
     from nautilus_trader.model.objects import Price, Quantity
@@ -116,11 +116,11 @@ def test_load_ids_single_symbol(monkeypatch, event_loop):
     monkeypatch.setattr(provider, "_fetch_exchange_info", fake_fetch)
 
     event_loop.run_until_complete(
-        provider.load_ids_async([InstrumentId(Symbol("BTCUSDT"), Venue("ASTERDEX"))])
+        provider.load_ids_async([InstrumentId(Symbol("BTCUSDT-PERP"), Venue("ASTERDEX"))])
     )
 
     instruments = provider.get_all()
-    iid = InstrumentId(Symbol("BTCUSDT"), Venue("ASTERDEX"))
+    iid = InstrumentId(Symbol("BTCUSDT-PERP"), Venue("ASTERDEX"))
     assert iid in instruments
     inst = instruments[iid]
     from nautilus_trader.model.objects import Price, Quantity

@@ -32,6 +32,7 @@ from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
+from nautilus_trader.live.factories import LiveDataClientFactory, LiveExecClientFactory
 
 
 def create_aster_http_client(
@@ -131,3 +132,79 @@ def create_aster_execution_client(
         config=config,
         name=name,
     )
+
+
+_CACHED_PROVIDER: AsterInstrumentProvider | None = None
+
+
+def _get_cached_provider(*, clock: LiveClock, proxy_url: str | None, config: AsterInstrumentProviderConfig | None) -> AsterInstrumentProvider:
+    global _CACHED_PROVIDER
+    if _CACHED_PROVIDER is not None:
+        return _CACHED_PROVIDER
+    provider = create_aster_instrument_provider(
+        clock=clock,
+        api_key=None,
+        api_secret=None,
+        config=config,
+        proxy_url=proxy_url,
+    )
+    _CACHED_PROVIDER = provider
+    return provider
+
+
+class AsterLiveDataClientFactory(LiveDataClientFactory):
+    """
+    Provides an ASTERDEX live data client factory (Binance-futures compatible).
+    """
+
+    @staticmethod
+    def create(  # type: ignore[override]
+        loop: asyncio.AbstractEventLoop,
+        name: str,
+        config: AsterDataClientConfig,
+        msgbus: MessageBus,
+        cache: Cache,
+        clock: LiveClock,
+    ) -> AsterMarketDataClient:
+        provider = _get_cached_provider(clock=clock, proxy_url=config.proxy_url, config=config.instrument_provider)  # type: ignore[arg-type]
+        return create_aster_market_data_client(
+            loop=loop,
+            msgbus=msgbus,
+            cache=cache,
+            clock=clock,
+            instrument_provider=provider,
+            config=config,
+            api_key=config.api_key,
+            api_secret=config.api_secret,
+            proxy_url=config.proxy_url,
+            name=name,
+        )
+
+
+class AsterLiveExecClientFactory(LiveExecClientFactory):
+    """
+    Provides an ASTERDEX live execution client factory (Binance-futures compatible).
+    """
+
+    @staticmethod
+    def create(  # type: ignore[override]
+        loop: asyncio.AbstractEventLoop,
+        name: str,
+        config: AsterExecClientConfig,
+        msgbus: MessageBus,
+        cache: Cache,
+        clock: LiveClock,
+    ) -> AsterExecutionClient:
+        provider = _get_cached_provider(clock=clock, proxy_url=config.proxy_url, config=config.instrument_provider)  # type: ignore[arg-type]
+        return create_aster_execution_client(
+            loop=loop,
+            msgbus=msgbus,
+            cache=cache,
+            clock=clock,
+            instrument_provider=provider,
+            config=config,
+            api_key=config.api_key,
+            api_secret=config.api_secret,
+            proxy_url=config.proxy_url,
+            name=name,
+        )

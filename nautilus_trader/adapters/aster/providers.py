@@ -24,6 +24,7 @@ from decimal import Decimal
 from nautilus_trader.adapters.aster.config import AsterInstrumentProviderConfig
 from nautilus_trader.adapters.aster.constants import ASTER_VENUE
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
+from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
 from nautilus_trader.adapters.binance.futures.providers import BinanceFuturesInstrumentProvider
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.common.component import LiveClock
@@ -78,7 +79,9 @@ class AsterInstrumentProvider(BinanceFuturesInstrumentProvider):
         server_time = data.get("serverTime", 0)
         sym_map = {s.get("symbol"): s for s in data.get("symbols", [])}
         for instrument_id in instrument_ids:
-            sym = instrument_id.symbol.value
+            # Instrument IDs in Nautilus follow Binance futures convention: "<RAW>-PERP".
+            # ASTER exchangeInfo lists raw symbols without "-PERP", so normalize first.
+            sym = str(BinanceSymbol(instrument_id.symbol.value))
             info = sym_map.get(sym)
             if not info:
                 self._log.warning("Symbol %s not found in exchangeInfo", sym)
@@ -129,9 +132,13 @@ class AsterInstrumentProvider(BinanceFuturesInstrumentProvider):
         maker_fee = Decimal(str(getattr(self._config, "maker_bps", 0.5))) / Decimal(10_000)
         taker_fee = Decimal(str(getattr(self._config, "taker_bps", 4.0))) / Decimal(10_000)
 
+        raw_symbol = Symbol(symbol_str)
+        # Keep instrument_id aligned with Binance futures symbol normalization ("-PERP").
+        nautilus_symbol = Symbol(BinanceSymbol(raw_symbol.value).parse_as_nautilus(BinanceAccountType.USDT_FUTURES))
+
         instrument = CryptoPerpetual(
-            instrument_id=InstrumentId(Symbol(symbol_str), self._venue),
-            raw_symbol=Symbol(symbol_str),
+            instrument_id=InstrumentId(nautilus_symbol, self._venue),
+            raw_symbol=raw_symbol,
             base_currency=Currency.from_str(info.get("baseAsset", "BTC")),
             quote_currency=Currency.from_str(info.get("quoteAsset", "USDT")),
             settlement_currency=Currency.from_str(info.get("quoteAsset", "USDT")),
