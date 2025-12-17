@@ -21,11 +21,13 @@ from nautilus_trader.adapters.aster.config import AsterExecClientConfig
 from nautilus_trader.adapters.aster.constants import ASTER_BASE_URL_WS
 from nautilus_trader.adapters.aster.providers import AsterInstrumentProvider
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
+from nautilus_trader.adapters.binance.http.error import BinanceClientError
 from nautilus_trader.adapters.binance.futures.execution import BinanceFuturesExecutionClient
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
+from nautilus_trader.common.enums import LogColor
 
 
 class AsterExecutionClient(BinanceFuturesExecutionClient):
@@ -56,3 +58,17 @@ class AsterExecutionClient(BinanceFuturesExecutionClient):
             account_type=BinanceAccountType.USDT_FUTURES,
             name=name,
         )
+
+    async def _init_dual_side_position(self) -> None:
+        # ASTERDEX does not reliably support the Binance futures hedge-mode endpoint.
+        # When unavailable, assume one-way mode (dual_side_position=False) and continue,
+        # because this check is only used to guard reduce_only behavior.
+        try:
+            await super()._init_dual_side_position()
+        except BinanceClientError as exc:
+            self._is_dual_side_position = False
+            self._log.warning(
+                f"ASTERDEX hedge-mode check failed (status={exc.status}); assuming one-way mode. "
+                "If you are running hedge mode on the exchange, disable it or set use_reduce_only=false.",
+                LogColor.YELLOW,
+            )
