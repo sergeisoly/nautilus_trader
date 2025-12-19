@@ -226,7 +226,7 @@ class BinanceFuturesOrderData(msgspec.Struct, kw_only=True, frozen=True):
     si: int  # ignore
     ss: int  # ignore
     rp: str  # Realized Profit of the trade
-    gtd: int  # TIF GTD order auto cancel time
+    gtd: int = 0  # TIF GTD order auto cancel time (absent unless TIF=GTD)
     W: int | None = None  # Working Time (when order was added to the book)
     V: str | None = None  # Self-Trade Prevention Mode
 

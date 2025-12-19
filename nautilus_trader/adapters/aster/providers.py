@@ -15,10 +15,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
-import urllib.parse
-import urllib.request
 from decimal import Decimal
 
 from nautilus_trader.adapters.aster.config import AsterInstrumentProviderConfig
@@ -29,6 +26,7 @@ from nautilus_trader.adapters.binance.futures.providers import BinanceFuturesIns
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.config import InstrumentProviderConfig
+from nautilus_trader.core.nautilus_pyo3 import HttpMethod
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.identifiers import InstrumentId, Symbol
 from nautilus_trader.model.instruments.crypto_perpetual import CryptoPerpetual
@@ -90,13 +88,11 @@ class AsterInstrumentProvider(BinanceFuturesInstrumentProvider):
 
     # ------------------------------------------------------------------ helpers
     async def _fetch_exchange_info(self) -> dict:
-        url = urllib.parse.urljoin(self._client.base_url, "/fapi/v1/exchangeInfo")
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._http_get_json, url)
-
-    def _http_get_json(self, url: str) -> dict:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            return json.loads(resp.read().decode())
+        # Use Nautilus HTTP client (pyo3) rather than urllib.
+        # This keeps behavior consistent with the live data/execution clients and avoids
+        # environment-specific TLS verification issues (e.g. VPN MITM cert chains).
+        raw = await self._client.send_request(HttpMethod.GET, "/fapi/v1/exchangeInfo")
+        return json.loads(raw.decode())
 
     def _parse_instrument_dict(self, info: dict, server_time_ms: int, filters: dict | None) -> bool:
         # Basic status checks
@@ -154,7 +150,7 @@ class AsterInstrumentProvider(BinanceFuturesInstrumentProvider):
         )
 
         # Register currencies and store
-        self._currencies.setdefault(str(instrument.base_currency), instrument.base_currency)
-        self._currencies.setdefault(str(instrument.quote_currency), instrument.quote_currency)
-        self.add(instrument)
+        self.add_currency(currency=instrument.base_currency)
+        self.add_currency(currency=instrument.quote_currency)
+        self.add(instrument=instrument)
         return True

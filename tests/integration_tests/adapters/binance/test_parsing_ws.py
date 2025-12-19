@@ -23,6 +23,7 @@ from nautilus_trader.adapters.binance.common.enums import BinanceOrderStatus
 from nautilus_trader.adapters.binance.common.schemas.market import BinanceTickerData
 from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesEnumParser
 from nautilus_trader.adapters.binance.futures.schemas.user import BinanceFuturesAlgoUpdateWrapper
+from nautilus_trader.adapters.binance.futures.schemas.user import BinanceFuturesOrderUpdateWrapper
 from nautilus_trader.adapters.binance.futures.schemas.user import BinanceFuturesTradeLiteMsg
 from nautilus_trader.adapters.binance.spot.enums import BinanceSpotEnumParser
 from nautilus_trader.adapters.binance.spot.schemas.user import BinanceSpotOrderUpdateWrapper
@@ -71,6 +72,19 @@ class TestBinanceWebSocketParsing:
 
         # Assert
         assert data.s == "ETHUSDT"
+
+    def test_parse_futures_order_update_missing_gtd(self):
+        raw = pkgutil.get_data(
+            package="tests.integration_tests.adapters.binance.resources.ws_messages",
+            resource="ws_futures_order_update_new_price_match_missing_gtd.json",
+        )
+        assert raw
+
+        decoder = msgspec.json.Decoder(BinanceFuturesOrderUpdateWrapper)
+        wrapper = decoder.decode(raw)
+
+        assert wrapper.data.e == "ORDER_TRADE_UPDATE"
+        assert wrapper.data.o.gtd == 0
 
     def test_parse_spot_execution_report_binance_us(self):
         # Arrange: Load Binance US execution report with W and V fields

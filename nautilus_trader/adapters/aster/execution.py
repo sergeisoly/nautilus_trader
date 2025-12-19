@@ -25,6 +25,8 @@ from nautilus_trader.adapters.aster.providers import AsterInstrumentProvider
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.adapters.binance.http.error import BinanceClientError
 from nautilus_trader.adapters.binance.futures.execution import BinanceFuturesExecutionClient
+from nautilus_trader.adapters.binance.futures.http.account import BinanceFuturesAccountHttpAPI
+from nautilus_trader.adapters.binance.futures.http.account import BinanceFuturesPositionRiskHttp
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.accounting.accounts.margin import MarginAccount
 from nautilus_trader.cache.cache import Cache
@@ -32,6 +34,21 @@ from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.core.datetime import millis_to_nanos
+
+
+class AsterFuturesAccountHttpAPI(BinanceFuturesAccountHttpAPI):
+    def __init__(
+        self,
+        client: BinanceHttpClient,
+        clock: LiveClock,
+        account_type: BinanceAccountType = BinanceAccountType.USDT_FUTURES,
+    ) -> None:
+        super().__init__(client=client, clock=clock, account_type=account_type)
+        # ASTERDEX `/fapi/v3/positionRisk` uses a non-Binance auth scheme (nonce/user/signer),
+        # but `/fapi/v2/positionRisk` is Binance-compatible. Force v2 here so ExecEngine
+        # reconciliation can fetch positions reliably.
+        if account_type == BinanceAccountType.USDT_FUTURES:
+            self._endpoint_futures_position_risk = BinanceFuturesPositionRiskHttp(client, "/fapi/v2/")
 
 
 class AsterExecutionClient(BinanceFuturesExecutionClient):
@@ -62,6 +79,10 @@ class AsterExecutionClient(BinanceFuturesExecutionClient):
             account_type=BinanceAccountType.USDT_FUTURES,
             name=name,
         )
+        # ASTERDEX `/fapi/v3/positionRisk` uses a non-Binance auth scheme; use an account
+        # HTTP API variant which forces `/fapi/v2/positionRisk` for reconciliation.
+        self._futures_http_account = AsterFuturesAccountHttpAPI(client, clock, BinanceAccountType.USDT_FUTURES)
+        self._http_account = self._futures_http_account
 
     async def _update_account_state(self) -> None:
         # Same as BinanceFuturesExecutionClient._update_account_state, but tolerate
