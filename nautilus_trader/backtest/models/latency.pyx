@@ -39,10 +39,19 @@ cdef class LatencyModel:
         The base latency (nanoseconds) for the model.
     insert_latency_nanos : int, default 0
         The order insert latency (nanoseconds) for the model.
+    insert_post_only_latency_nanos : int, default 0
+        The order insert latency (nanoseconds) for post-only orders.
+        If 0, then will inherit `insert_latency_nanos`.
     update_latency_nanos : int, default 0
         The order update latency (nanoseconds) for the model.
+    update_post_only_latency_nanos : int, default 0
+        The order update latency (nanoseconds) for post-only orders.
+        If 0, then will inherit `update_latency_nanos`.
     cancel_latency_nanos : int, default 0
         The order cancel latency (nanoseconds) for the model.
+    cancel_post_only_latency_nanos : int, default 0
+        The order cancel latency (nanoseconds) for post-only orders.
+        If 0, then will inherit `cancel_latency_nanos`.
     config : FillModelConfig, optional
         The configuration for the model.
 
@@ -66,19 +75,43 @@ cdef class LatencyModel:
         uint64_t cancel_latency_nanos = 0,
         config = None,
     ) -> None:
+        cdef:
+            uint64_t insert_post_only_latency_nanos_
+            uint64_t update_post_only_latency_nanos_
+            uint64_t cancel_post_only_latency_nanos_
+
         if config is not None:
             # Initialize from config
             base_latency_nanos = config.base_latency_nanos
             insert_latency_nanos = config.insert_latency_nanos
             update_latency_nanos = config.update_latency_nanos
             cancel_latency_nanos = config.cancel_latency_nanos
+            insert_post_only_latency_nanos_ = config.insert_post_only_latency_nanos
+            update_post_only_latency_nanos_ = config.update_post_only_latency_nanos
+            cancel_post_only_latency_nanos_ = config.cancel_post_only_latency_nanos
+            if insert_post_only_latency_nanos_ == 0:
+                insert_post_only_latency_nanos_ = insert_latency_nanos
+            if update_post_only_latency_nanos_ == 0:
+                update_post_only_latency_nanos_ = update_latency_nanos
+            if cancel_post_only_latency_nanos_ == 0:
+                cancel_post_only_latency_nanos_ = cancel_latency_nanos
+        else:
+            insert_post_only_latency_nanos_ = insert_latency_nanos
+            update_post_only_latency_nanos_ = update_latency_nanos
+            cancel_post_only_latency_nanos_ = cancel_latency_nanos
 
         Condition.not_negative_int(base_latency_nanos, "base_latency_nanos")
         Condition.not_negative_int(insert_latency_nanos, "insert_latency_nanos")
         Condition.not_negative_int(update_latency_nanos, "update_latency_nanos")
         Condition.not_negative_int(cancel_latency_nanos, "cancel_latency_nanos")
+        Condition.not_negative_int(insert_post_only_latency_nanos_, "insert_post_only_latency_nanos")
+        Condition.not_negative_int(update_post_only_latency_nanos_, "update_post_only_latency_nanos")
+        Condition.not_negative_int(cancel_post_only_latency_nanos_, "cancel_post_only_latency_nanos")
 
         self.base_latency_nanos = base_latency_nanos
         self.insert_latency_nanos = base_latency_nanos + insert_latency_nanos
         self.update_latency_nanos = base_latency_nanos + update_latency_nanos
         self.cancel_latency_nanos = base_latency_nanos + cancel_latency_nanos
+        self.insert_post_only_latency_nanos = base_latency_nanos + insert_post_only_latency_nanos_
+        self.update_post_only_latency_nanos = base_latency_nanos + update_post_only_latency_nanos_
+        self.cancel_post_only_latency_nanos = base_latency_nanos + cancel_post_only_latency_nanos_

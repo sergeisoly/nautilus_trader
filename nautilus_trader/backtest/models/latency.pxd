@@ -21,7 +21,13 @@ cdef class LatencyModel:
     """The default latency to the exchange.\n\n:returns: `int`"""
     cdef readonly uint64_t insert_latency_nanos
     """The latency (nanoseconds) for order insert messages to reach the exchange.\n\n:returns: `int`"""
+    cdef readonly uint64_t insert_post_only_latency_nanos
+    """The latency (nanoseconds) for post-only order insert messages to reach the exchange.\n\n:returns: `int`"""
     cdef readonly uint64_t update_latency_nanos
     """The latency (nanoseconds) for order update messages to reach the exchange.\n\n:returns: `int`"""
+    cdef readonly uint64_t update_post_only_latency_nanos
+    """The latency (nanoseconds) for post-only order update messages to reach the exchange.\n\n:returns: `int`"""
     cdef readonly uint64_t cancel_latency_nanos
     """The latency (nanoseconds) for order cancel messages to reach the exchange.\n\n:returns: `int`"""
+    cdef readonly uint64_t cancel_post_only_latency_nanos
+    """The latency (nanoseconds) for post-only order cancel messages to reach the exchange.\n\n:returns: `int`"""

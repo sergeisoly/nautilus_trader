@@ -488,17 +488,29 @@ class LatencyModelConfig(NautilusConfig, frozen=True):
         The base latency (nanoseconds) for the model.
     insert_latency_nanos : int, default 0
         The order insert latency (nanoseconds) for the model.
+    insert_post_only_latency_nanos : int, default 0
+        The order insert latency (nanoseconds) for post-only orders.
+        If 0, then will inherit `insert_latency_nanos`.
     update_latency_nanos : int, default 0
         The order update latency (nanoseconds) for the model.
+    update_post_only_latency_nanos : int, default 0
+        The order update latency (nanoseconds) for post-only orders.
+        If 0, then will inherit `update_latency_nanos`.
     cancel_latency_nanos : int, default 0
         The order cancel latency (nanoseconds) for the model.
+    cancel_post_only_latency_nanos : int, default 0
+        The order cancel latency (nanoseconds) for post-only orders.
+        If 0, then will inherit `cancel_latency_nanos`.
 
     """
 
     base_latency_nanos: NonNegativeInt = 1_000_000_000  # 1 millisecond in nanoseconds
     insert_latency_nanos: NonNegativeInt = 0
+    insert_post_only_latency_nanos: NonNegativeInt = 0
     update_latency_nanos: NonNegativeInt = 0
+    update_post_only_latency_nanos: NonNegativeInt = 0
     cancel_latency_nanos: NonNegativeInt = 0
+    cancel_post_only_latency_nanos: NonNegativeInt = 0
 
 
 class ImportableLatencyModelConfig(NautilusConfig, frozen=True):
