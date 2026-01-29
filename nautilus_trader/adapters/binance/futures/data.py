@@ -22,19 +22,26 @@ from nautilus_trader.adapters.binance.config import BinanceDataClientConfig
 from nautilus_trader.adapters.binance.data import BinanceCommonDataClient
 from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesEnumParser
 from nautilus_trader.adapters.binance.futures.http.market import BinanceFuturesMarketHttpAPI
+from nautilus_trader.adapters.binance.futures.schemas.market import BinanceFuturesForceOrderAllMsg
+from nautilus_trader.adapters.binance.futures.schemas.market import BinanceFuturesForceOrderData
+from nautilus_trader.adapters.binance.futures.schemas.market import BinanceFuturesForceOrderMsg
 from nautilus_trader.adapters.binance.futures.schemas.market import BinanceFuturesMarkPriceAllMsg
 from nautilus_trader.adapters.binance.futures.schemas.market import BinanceFuturesMarkPriceData
 from nautilus_trader.adapters.binance.futures.schemas.market import BinanceFuturesMarkPriceMsg
 from nautilus_trader.adapters.binance.futures.schemas.market import BinanceFuturesTradeMsg
 from nautilus_trader.adapters.binance.futures.types import BinanceFuturesMarkPriceUpdate
+from nautilus_trader.adapters.binance.futures.types import LiquidationUpdate
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.providers import InstrumentProvider
 from nautilus_trader.core.correctness import PyCondition
+from nautilus_trader.core.nautilus_pyo3 import millis_to_nanos
 from nautilus_trader.model.data import CustomData
 from nautilus_trader.model.data import DataType
+from nautilus_trader.model.data import FundingRateUpdate
+from nautilus_trader.model.data import IndexPriceUpdate
 from nautilus_trader.model.data import MarkPriceUpdate
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDeltas
@@ -114,6 +121,8 @@ class BinanceFuturesDataClient(BinanceCommonDataClient):
         # Register additional futures websocket handlers
         self._ws_handlers["@markPrice"] = self._handle_mark_price
         self._ws_handlers["!markPrice@arr"] = self._handle_mark_price_all
+        self._ws_handlers["@forceOrder"] = self._handle_force_order
+        self._ws_handlers["!forceOrder@arr"] = self._handle_force_order_all
 
         # Websocket msgspec decoders
         self._decoder_futures_trade_msg = msgspec.json.Decoder(BinanceFuturesTradeMsg)
@@ -121,6 +130,8 @@ class BinanceFuturesDataClient(BinanceCommonDataClient):
         self._decoder_futures_mark_price_all_msg = msgspec.json.Decoder(
             BinanceFuturesMarkPriceAllMsg,
         )
+        self._decoder_futures_force_order_msg = msgspec.json.Decoder(BinanceFuturesForceOrderMsg)
+        self._decoder_futures_force_order_all_msg = msgspec.json.Decoder(BinanceFuturesForceOrderAllMsg)
 
     # -- WEBSOCKET HANDLERS ---------------------------------------------------------------------------------
 
@@ -176,6 +187,23 @@ class BinanceFuturesDataClient(BinanceCommonDataClient):
                 data.ts_init,
             ),
         )
+        self._handle_data(
+            IndexPriceUpdate(
+                data.instrument_id,
+                data.index,
+                data.ts_event,
+                data.ts_init,
+            ),
+        )
+        self._handle_data(
+            FundingRateUpdate(
+                data.instrument_id,
+                data.funding_rate,
+                data.ts_event,
+                data.ts_init,
+                next_funding_ns=data.next_funding_ns,
+            ),
+        )
 
     def _handle_mark_price(self, raw: bytes) -> None:
         msg = self._decoder_futures_mark_price_msg.decode(raw)
@@ -185,3 +213,38 @@ class BinanceFuturesDataClient(BinanceCommonDataClient):
         msg = self._decoder_futures_mark_price_all_msg.decode(raw)
         for data in msg.data:
             self._handle_mark_price_data(data)
+
+    def _handle_force_order_data(self, data: BinanceFuturesForceOrderData) -> None:
+        order = data.o
+        instrument_id: InstrumentId = self._get_cached_instrument_id(order.s)
+
+        try:
+            price = float(order.ap)
+            quantity = float(order.q)
+        except ValueError:
+            return
+
+        if price <= 0.0 or quantity <= 0.0:
+            return
+
+        ts_event = millis_to_nanos(order.T if order.T else data.E)
+        ts_init = self._clock.timestamp_ns()
+        update = LiquidationUpdate(
+            instrument_id=instrument_id,
+            side=order.S,
+            price=price,
+            quantity=quantity,
+            ts_event=ts_event,
+            ts_init=ts_init,
+        )
+        generic = CustomData(data_type=DataType(LiquidationUpdate), data=update)
+        self._handle_data(generic)
+
+    def _handle_force_order(self, raw: bytes) -> None:
+        msg = self._decoder_futures_force_order_msg.decode(raw)
+        self._handle_force_order_data(msg.data)
+
+    def _handle_force_order_all(self, raw: bytes) -> None:
+        msg = self._decoder_futures_force_order_all_msg.decode(raw)
+        for data in msg.data:
+            self._handle_force_order_data(data)

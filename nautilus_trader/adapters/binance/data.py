@@ -35,6 +35,8 @@ from nautilus_trader.adapters.binance.common.types import BinanceBar
 from nautilus_trader.adapters.binance.common.types import BinanceTicker
 from nautilus_trader.adapters.binance.config import BinanceDataClientConfig
 from nautilus_trader.adapters.binance.futures.types import BinanceFuturesMarkPriceUpdate
+from nautilus_trader.adapters.binance.futures.types import LiquidationUpdate
+from nautilus_trader.adapters.binance.futures.types import OpenInterestUpdate
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.http.error import BinanceError
 from nautilus_trader.adapters.binance.http.market import BinanceMarketHttpAPI
@@ -46,6 +48,7 @@ from nautilus_trader.common.enums import LogColor
 from nautilus_trader.common.providers import InstrumentProvider
 from nautilus_trader.core.correctness import PyCondition
 from nautilus_trader.core.datetime import secs_to_millis
+from nautilus_trader.core.nautilus_pyo3 import millis_to_nanos
 from nautilus_trader.data.aggregation import BarAggregator
 from nautilus_trader.data.aggregation import TickBarAggregator
 from nautilus_trader.data.aggregation import ValueBarAggregator
@@ -59,6 +62,8 @@ from nautilus_trader.data.messages import SubscribeBars
 from nautilus_trader.data.messages import SubscribeData
 from nautilus_trader.data.messages import SubscribeInstrument
 from nautilus_trader.data.messages import SubscribeInstruments
+from nautilus_trader.data.messages import SubscribeIndexPrices
+from nautilus_trader.data.messages import SubscribeFundingRates
 from nautilus_trader.data.messages import SubscribeMarkPrices
 from nautilus_trader.data.messages import SubscribeOrderBook
 from nautilus_trader.data.messages import SubscribeQuoteTicks
@@ -67,6 +72,8 @@ from nautilus_trader.data.messages import UnsubscribeBars
 from nautilus_trader.data.messages import UnsubscribeData
 from nautilus_trader.data.messages import UnsubscribeInstrument
 from nautilus_trader.data.messages import UnsubscribeInstruments
+from nautilus_trader.data.messages import UnsubscribeIndexPrices
+from nautilus_trader.data.messages import UnsubscribeFundingRates
 from nautilus_trader.data.messages import UnsubscribeOrderBook
 from nautilus_trader.data.messages import UnsubscribeQuoteTicks
 from nautilus_trader.data.messages import UnsubscribeTradeTicks
@@ -169,6 +176,9 @@ class BinanceCommonDataClient(LiveMarketDataClient):
 
         self._connect_websockets_delay: float = 0.0  # Delay for bulk subscriptions to come in
         self._connect_websockets_task: asyncio.Task | None = None
+        self._open_interest_poll_interval_ms: int = int(getattr(config, "open_interest_poll_interval_ms", 2000) or 2000)
+        self._log.info(f"{self._open_interest_poll_interval_ms=}", LogColor.BLUE)
+        self._open_interest_tasks: dict[InstrumentId, asyncio.Task] = {}
 
         self._subscribe_allow_no_instrument_id = [
             BinanceFuturesMarkPriceUpdate,
@@ -284,6 +294,10 @@ class BinanceCommonDataClient(LiveMarketDataClient):
             self._log.debug("Canceling task 'update_instruments'")
             self._update_instruments_task.cancel()
             self._update_instruments_task = None
+        if self._open_interest_tasks:
+            for task in self._open_interest_tasks.values():
+                task.cancel()
+            self._open_interest_tasks.clear()
 
         await self._ws_client.disconnect()
 
@@ -297,7 +311,7 @@ class BinanceCommonDataClient(LiveMarketDataClient):
     # -- SUBSCRIPTIONS ----------------------------------------------------------------------------
 
     async def _subscribe(self, command: SubscribeData) -> None:
-        instrument_id: InstrumentId | None = command.data_type.metadata.get("instrument_id")
+        instrument_id: InstrumentId | None = command.data_type.metadata.get("instrument_id") or command.instrument_id
         if (
             instrument_id is None
             and command.data_type.type not in self._subscribe_allow_no_instrument_id
@@ -318,13 +332,40 @@ class BinanceCommonDataClient(LiveMarketDataClient):
                 return
             mark_price_symbol = instrument_id.symbol.value if instrument_id else None
             await self._ws_client.subscribe_mark_price(mark_price_symbol, speed=1000)
+        elif command.data_type.type == OpenInterestUpdate:
+            if not self._binance_account_type.is_futures:
+                self._log.error(
+                    "Cannot subscribe to `OpenInterestUpdate` "
+                    f"for {self._binance_account_type.value} account types",
+                )
+                return
+            if instrument_id is None:
+                self._log.error("Cannot subscribe to `OpenInterestUpdate` without instrument_id")
+                return
+            if instrument_id in self._open_interest_tasks:
+                return
+            if not hasattr(self._http_market, "query_open_interest"):
+                self._log.error("Cannot subscribe to `OpenInterestUpdate`: HTTP market client missing query_open_interest")
+                return
+            self._open_interest_tasks[instrument_id] = self.create_task(self._poll_open_interest(instrument_id))
+        elif command.data_type.type == LiquidationUpdate:
+            if not self._binance_account_type.is_futures:
+                self._log.error(
+                    "Cannot subscribe to `LiquidationUpdate` "
+                    f"for {self._binance_account_type.value} account types",
+                )
+                return
+            if instrument_id is None:
+                self._log.error("Cannot subscribe to `LiquidationUpdate` without instrument_id")
+                return
+            await self._ws_client.subscribe_force_order(instrument_id.symbol.value)
         else:
             self._log.error(
                 f"Cannot subscribe to {command.data_type.type} (not implemented)",
             )
 
     async def _unsubscribe(self, command: UnsubscribeData) -> None:
-        instrument_id: InstrumentId | None = command.data_type.metadata.get("instrument_id")
+        instrument_id: InstrumentId | None = command.data_type.metadata.get("instrument_id") or command.instrument_id
         if (
             instrument_id is None
             and command.data_type.type not in self._subscribe_allow_no_instrument_id
@@ -343,6 +384,16 @@ class BinanceCommonDataClient(LiveMarketDataClient):
                     f"for {self._binance_account_type.value} account types",
                 )
                 return
+        elif command.data_type.type == OpenInterestUpdate:
+            if instrument_id is None:
+                return
+            task = self._open_interest_tasks.pop(instrument_id, None)
+            if task is not None:
+                task.cancel()
+        elif command.data_type.type == LiquidationUpdate:
+            if instrument_id is None:
+                return
+            await self._ws_client.unsubscribe_force_order(instrument_id.symbol.value)
         else:
             self._log.error(
                 f"Cannot unsubscribe from {command.data_type.type} (not implemented)",
@@ -447,6 +498,24 @@ class BinanceCommonDataClient(LiveMarketDataClient):
     async def _subscribe_mark_prices(self, command: SubscribeMarkPrices) -> None:
         await self._ws_client.subscribe_mark_price(command.instrument_id.symbol.value, speed=1000)
 
+    async def _subscribe_index_prices(self, command: SubscribeIndexPrices) -> None:
+        if not self._binance_account_type.is_futures:
+            self._log.error(
+                "Cannot subscribe to index prices "
+                f"for {self._binance_account_type.value} account types",
+            )
+            return
+        await self._ws_client.subscribe_mark_price(command.instrument_id.symbol.value, speed=1000)
+
+    async def _subscribe_funding_rates(self, command: SubscribeFundingRates) -> None:
+        if not self._binance_account_type.is_futures:
+            self._log.error(
+                "Cannot subscribe to funding rates "
+                f"for {self._binance_account_type.value} account types",
+            )
+            return
+        await self._ws_client.subscribe_mark_price(command.instrument_id.symbol.value, speed=1000)
+
     async def _subscribe_quote_ticks(self, command: SubscribeQuoteTicks) -> None:
         await self._ws_client.subscribe_book_ticker(command.instrument_id.symbol.value)
 
@@ -510,6 +579,16 @@ class BinanceCommonDataClient(LiveMarketDataClient):
         else:
             await self._ws_client.unsubscribe_trades(command.instrument_id.symbol.value)
 
+    async def _unsubscribe_index_prices(self, command: UnsubscribeIndexPrices) -> None:
+        if not self._binance_account_type.is_futures:
+            return
+        await self._ws_client.unsubscribe_mark_price(command.instrument_id.symbol.value, speed=1000)
+
+    async def _unsubscribe_funding_rates(self, command: UnsubscribeFundingRates) -> None:
+        if not self._binance_account_type.is_futures:
+            return
+        await self._ws_client.unsubscribe_mark_price(command.instrument_id.symbol.value, speed=1000)
+
     async def _unsubscribe_bars(self, command: UnsubscribeBars) -> None:
         if not command.bar_type.spec.is_time_aggregated():
             self._log.error(
@@ -537,6 +616,46 @@ class BinanceCommonDataClient(LiveMarketDataClient):
             symbol=command.bar_type.instrument_id.symbol.value,
             interval=interval.value,
         )
+
+    async def _poll_open_interest(self, instrument_id: InstrumentId) -> None:
+        poll_ms = int(self._open_interest_poll_interval_ms)
+        if poll_ms <= 0:
+            return
+
+        symbol = BinanceSymbol(instrument_id.symbol.value)
+        data_type = DataType(OpenInterestUpdate)
+
+        while True:
+            try:
+                oi = await self._http_market.query_open_interest(symbol)
+                try:
+                    level = float(oi.openInterest)
+                except ValueError:
+                    await asyncio.sleep(poll_ms / 1000.0)
+                    continue
+
+                ts_event = millis_to_nanos(int(oi.time))
+                ts_init = self._clock.timestamp_ns()
+                update = OpenInterestUpdate(
+                    instrument_id=instrument_id,
+                    level=level,
+                    value=None,
+                    ts_event=ts_event,
+                    ts_init=ts_init,
+                )
+                self._handle_data(CustomData(data_type=data_type, data=update))
+                await asyncio.sleep(poll_ms / 1000.0)
+            except asyncio.CancelledError:
+                return
+            except BinanceError as e:
+                error_code = BinanceErrorCode(int(e.message["code"]))
+                self._log.warning(
+                    f"{error_code.name}: open interest poll failed for {instrument_id}, retrying in {poll_ms}ms",
+                )
+                await asyncio.sleep(poll_ms / 1000.0)
+            except Exception as e:
+                self._log.exception(f"Open interest poll failed for {instrument_id}", e)
+                await asyncio.sleep(poll_ms / 1000.0)
 
     # -- REQUESTS ---------------------------------------------------------------------------------
 

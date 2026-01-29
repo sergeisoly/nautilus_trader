@@ -615,6 +615,35 @@ class BinanceWebSocketClient:
             stream = f"{BinanceSymbol(symbol).lower()}@markPrice@{int(speed / 1000)}s"
         await self._unsubscribe(stream)
 
+    async def subscribe_force_order(
+        self,
+        symbol: str | None = None,
+    ) -> None:
+        """
+        Subscribe to liquidation order (`forceOrder`) stream.
+
+        Stream Name: <symbol>@forceOrder or
+        Stream Name: !forceOrder@arr
+        """
+        if symbol is None:
+            stream = "!forceOrder@arr"
+        else:
+            stream = f"{BinanceSymbol(symbol).lower()}@forceOrder"
+        await self._subscribe(stream)
+
+    async def unsubscribe_force_order(
+        self,
+        symbol: str | None = None,
+    ) -> None:
+        """
+        Unsubscribe from liquidation order (`forceOrder`) stream.
+        """
+        if symbol is None:
+            stream = "!forceOrder@arr"
+        else:
+            stream = f"{BinanceSymbol(symbol).lower()}@forceOrder"
+        await self._unsubscribe(stream)
+
     async def _subscribe(self, stream: str) -> None:
         if stream in self._streams:
             self._log.warning(f"Cannot subscribe to {stream}: already subscribed")

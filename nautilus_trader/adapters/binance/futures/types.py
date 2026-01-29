@@ -157,3 +157,71 @@ class BinanceFuturesMarkPriceUpdate(Data):
             "ts_event": obj.ts_event,
             "ts_init": obj.ts_init,
         }
+
+
+class OpenInterestUpdate(Data):
+    """
+    Represents a Binance Futures open interest update.
+
+    Notes
+    -----
+    Binance does not publish open interest updates over WebSocket. This type is
+    intended to be emitted by polling the REST API (e.g. `/fapi/v1/openInterest`).
+    """
+
+    def __init__(
+        self,
+        instrument_id: InstrumentId,
+        level: float,
+        value: float | None,
+        ts_event: int,
+        ts_init: int,
+    ) -> None:
+        self.instrument_id = instrument_id
+        self.level = float(level)
+        self.value = float(value) if value is not None else None
+        self._ts_event = int(ts_event)
+        self._ts_init = int(ts_init)
+
+    @property
+    def ts_event(self) -> int:
+        return int(self._ts_event)
+
+    @property
+    def ts_init(self) -> int:
+        return int(self._ts_init)
+
+
+class LiquidationUpdate(Data):
+    """
+    Represents a Binance Futures forced liquidation event.
+
+    Notes
+    -----
+    Intended to be emitted from the WebSocket `forceOrder` stream.
+    """
+
+    def __init__(
+        self,
+        instrument_id: InstrumentId,
+        side: str,
+        price: float,
+        quantity: float,
+        ts_event: int,
+        ts_init: int,
+    ) -> None:
+        self.instrument_id = instrument_id
+        self.side = str(side)
+        self.price = float(price)
+        self.quantity = float(quantity)
+        self.notional = float(price) * float(quantity)
+        self._ts_event = int(ts_event)
+        self._ts_init = int(ts_init)
+
+    @property
+    def ts_event(self) -> int:
+        return int(self._ts_event)
+
+    @property
+    def ts_init(self) -> int:
+        return int(self._ts_init)

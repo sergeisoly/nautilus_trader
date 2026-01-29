@@ -139,6 +139,25 @@ class BinanceFuturesFundRate(msgspec.Struct, frozen=True):
     fundingTime: str
 
 
+class BinanceFuturesOpenInterest(msgspec.Struct, frozen=True):
+    """
+    HTTP response from Binance Futures open interest endpoint.
+
+    Notes
+    -----
+    USD-M: `GET /fapi/v1/openInterest`
+    COIN-M: `GET /dapi/v1/openInterest`
+    """
+
+    symbol: str
+    openInterest: str
+    time: int
+
+    # COIN-M may include additional fields; msgspec ignores unknown fields by default.
+    pair: str | None = None
+    contractType: str | None = None
+
+
 ################################################################################
 # WebSocket messages
 ################################################################################
@@ -257,3 +276,47 @@ class BinanceFuturesMarkPriceAllMsg(msgspec.Struct, frozen=True):
 
     stream: str
     data: list[BinanceFuturesMarkPriceData]
+
+
+class BinanceFuturesForceOrder(msgspec.Struct, frozen=True):
+    """
+    WebSocket message 'inner struct' for Binance Futures force order events.
+
+    References
+    ----------
+    https://developers.binance.com/docs/derivatives/usds-margined-futures/websocket-market-streams/Liquidation-Order-Streams
+    """
+
+    s: str  # Symbol
+    S: str  # Side
+    q: str  # Quantity
+    ap: str  # Average price
+    T: int  # Order trade time (ms)
+
+
+class BinanceFuturesForceOrderData(msgspec.Struct, frozen=True):
+    """
+    WebSocket message 'outer struct' for Binance Futures force order events.
+    """
+
+    e: str  # Event type
+    E: int  # Event time (ms)
+    o: BinanceFuturesForceOrder
+
+
+class BinanceFuturesForceOrderMsg(msgspec.Struct, frozen=True):
+    """
+    WebSocket message from Binance Futures liquidation order (`forceOrder`) stream.
+    """
+
+    stream: str
+    data: BinanceFuturesForceOrderData
+
+
+class BinanceFuturesForceOrderAllMsg(msgspec.Struct, frozen=True):
+    """
+    WebSocket message from Binance Futures all-symbol liquidation order (`forceOrder`) stream.
+    """
+
+    stream: str
+    data: list[BinanceFuturesForceOrderData]

@@ -102,6 +102,8 @@ class BinanceDataClientConfig(LiveDataClientConfig, frozen=True):
     use_agg_trade_ticks : bool, default False
         Whether to use aggregated trade tick endpoints instead of raw trades.
         TradeId of ticks will be the Aggregate tradeId returned by Binance.
+    open_interest_poll_interval_ms : PositiveInt, default 2000
+        Poll interval (ms) for futures open interest, when subscribed via custom data.
 
     """
 
@@ -117,6 +119,7 @@ class BinanceDataClientConfig(LiveDataClientConfig, frozen=True):
     testnet: bool = False
     update_instruments_interval_mins: PositiveInt | None = 60
     use_agg_trade_ticks: bool = False
+    open_interest_poll_interval_ms: PositiveInt = 2_000
 
 
 class BinanceExecClientConfig(LiveExecClientConfig, frozen=True):
